@@ -6,7 +6,7 @@ require('dotenv').config()
 const express = require("express");
 const bodyParser = require('body-parser');
 const app = express();
-const port = 3001;
+const port = 443;
 
 const { Client } = require('pg');
 
@@ -21,7 +21,7 @@ const client = new Client({
 client.connect();
 
 app.listen(port, () => {
-    console.log("server is listening on port 3001");
+    console.log("server is listening on port 443");
 });
 
 app.get('/', (request, response) => {
