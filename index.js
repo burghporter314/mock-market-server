@@ -7,21 +7,12 @@ const express = require("express");
 const bodyParser = require('body-parser');
 const app = express();
 const port = process.env.PORT || 3000;
-
-const { Client } = require('pg');
-
-// This creates a remote connection to the heroku database.
-const client = new Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
-});
-
-client.connect();
+const { pool } = require('./db/pool');
+const { createAllTables, dropAllTables } = require('./db/queries');
 
 app.listen(port, () => {
     console.log("server is listening...");
+    createAllTables()
 });
 
 app.get('/', (request, response) => {
