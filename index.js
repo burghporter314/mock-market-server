@@ -8,13 +8,27 @@ const bodyParser = require('body-parser');
 const app = express();
 const port = process.env.PORT || 3000;
 const { pool } = require('./db/pool');
-const { createAllTables, dropAllTables } = require('./db/queries');
+const { addAccountEntry,
+        addDepositEntry,
+        addWithdrawalEntry,
+        checkAccount,
+        createAllTables,
+        dropAllTables} = require('./db/queries');
 
 app.listen(port, () => {
     console.log("server is listening...");
-    createAllTables()
+    // Creates all the tables if they do not exist already in the database. The operations must not be concurrent due to the foreign key nature of the tables.
+    // createAllTables()
 });
 
 app.get('/', (request, response) => {
     response.json({ info: 'Node.js, Express, and Postgres API' })
-})
+});
+
+app.get('/account', checkAccount);
+
+app.post('/account', addAccountEntry);
+
+app.post('/deposit', addDepositEntry);
+
+app.post('/withdrawal', addWithdrawalEntry);
