@@ -1,5 +1,6 @@
 
 const { pool } = require('./pool');
+const { getCurrentPrice } = require('../market/queries');
 
 pool.on('connect', () => {
   console.log('connected to the db');
@@ -240,7 +241,7 @@ const addWithdrawalEntry = async (request, response) => {
 };
 
 /**
- * Add a withdrawal
+ * Add a deposit
  */
 const addDepositEntry = async (request, response) => {
   const username = request.query.username;
@@ -270,11 +271,280 @@ const addDepositEntry = async (request, response) => {
 };
 
 /**
- * Get the total account value by adding withdrawals and deposits
+ * Add a purchase
  */
-const getAccountTotal = async (username) => {
+const addPurchaseEntry = async (request, response) => {
+  const username = request.query.username;
+  const amount = request.query.amount;
+  const ticker = request.query.ticker;
+  const currentPrice = await getCurrentPrice(ticker);
+  const accountDetails = await getAccountDetails(username);
+
+  if(currentPrice.c) {
+    if((Number(amount) * Number(currentPrice.c)) > Number(accountTotal.total)) {
+      response.status(400).send("Cannot buy more than what's available in account");
+      return;
+    }
+  } else {
+    response.status(400).send("Cannot get current price for stock. Unable to make purchase");
+    return;
+  }
+
+  if(username && amount > 0) {
+    const createQuery = `INSERT INTO PURCHASE (account_username, date, amount_purchased, average_cost, ticker) VALUES ($1, NOW(), $2, $3, $4);`;  
+    const val = await pool.query(createQuery, [username, amount, currentPrice.c, ticker], async (err) => {
+      if(err) {
+        response.status(400).send(err);
+      } else {
+        response.status(200).send({
+          username: username,
+          amount: amount,
+          average_cost: currentPrice.c,
+          ticker: ticker,
+          account_value: Number(accountDetails.total) - (Number(amount) * Number(currentPrice.c))
+        });
+      }
+    });
+  } else {
+    if(!username) {
+      response.status(400).send("Username is not defined in request body.");
+    } else {
+      response.status(400).send("Amount must be postitive");
+    }
+  }
+};
+
+/**
+ * Add a sale
+ */
+const addSaleEntry = async (request, response) => {
+  const username = request.query.username;
+  const amount = request.query.amount;
+  const ticker = request.query.ticker;
+  const currentPrice = await getCurrentPrice(ticker);
+  const accountDetails = await getAccountDetails(username);
+  const totalCurrentStock = await getTickerTotal(username, ticker);
+
+  console.log(totalCurrentStock);
+
+  if(currentPrice.c) {
+    if(Number(amount) > totalCurrentStock) {
+      response.status(400).send("Cannot sell more stock than you currently own.");
+      return;
+    }
+  } else {
+    response.status(400).send("Cannot get current price for stock. Unable to make sale");
+    return;
+  }
+
+  if(username && amount > 0) {
+    const createQuery = `INSERT INTO SALE (account_username, date, amount_sold, average_cost, ticker) VALUES ($1, NOW(), $2, $3, $4);`;  
+    const val = await pool.query(createQuery, [username, amount, currentPrice.c, ticker], async (err) => {
+      if(err) {
+        response.status(400).send(err);
+      } else {
+        response.status(200).send({
+          username: username,
+          amount: amount,
+          average_cost: currentPrice.c,
+          ticker: ticker,
+          account_value: Number(accountDetails.total) + (Number(amount) * Number(currentPrice.c))
+        });
+      }
+    });
+  } else {
+    if(!username) {
+      response.status(400).send("Username is not defined in request body.");
+    } else {
+      response.status(400).send("Amount must be postitive");
+    }
+  }
+};
+
+/**
+ * This retrieves the account information for all stocks, deposits, and withdraws on the account
+ */
+const getAccountDetailsSummary = async (request, response) => {
+  const username = request.query.username;
+  if(username) {
+    const accountDetails = await getAccountDetails(username);
+    console.log(accountDetails);
+    response.status(200).send(accountDetails);
+  } else {
+    response.status(400).send("Username is not defined in request body.");
+  }
+}
+
+/**
+ * Calculate the total profit or loss of a given portfolio
+ */
+const calculateStockProfitOrLoss = async(username) => {
+
+  const createPurchasesQuery = `SELECT * FROM PURCHASE WHERE account_username=$1;`
+  const purchases = await pool.query(createPurchasesQuery, [username]);
+  
+  const createSalesQuery = `SELECT * FROM SALE WHERE account_username=$1;`
+  const sales = await pool.query(createSalesQuery, [username]);
+
+  // Need to concatenate the two results so that we can perform the FIFO algorithm to determine profit.
+  // contains fields: account_username, date, amount_sold, average_cost, ticker
+  const actions = purchases.rows.concat(sales.rows);
+
+  // We need to map all of the stock tickers to their associated buy and sell actions
+  let map = {};
+  for(let i = 0; i < actions.length; i++) {
+    let stockAction = [];
+    if(map.hasOwnProperty(actions[i].ticker)) {
+      // If the ticker entry already exists, simply append to the existing map
+      map[actions[i].ticker].push(actions[i]);
+    } else {
+      // If the ticker entry does not exist, create a new array with that action entry.
+      map[actions[i].ticker] = [actions[i]];
+    }
+  }
+  
+  let results = {stocks: {}};
+  let accountProfit = 0;
+  let accountStockTotal = 0;
+  for (const [item, itemActions] of Object.entries(map)) {
+
+    // Seperate the type of actions so that they can be applied in a FIFO order.
+    buyActions = [];
+    sellActions = [];
+
+    // Iterate through the item actions and seperate them by buy and sell.
+    while(itemActions.length != 0) {
+      let item = itemActions.pop();
+      if(item.hasOwnProperty('amount_purchased')) {
+        buyActions.push(item);
+      } else {
+        sellActions.push(item);
+      }
+    }
+
+    // This calculates profit for already sold stocks
+    let soldProfit = 0;
+    while(sellActions.length != 0) {
+
+      // To calculate profit for a given stock, we need the average price and amount purchased or sold for all actions.
+      let buyActionBoughtAt = parseFloat(buyActions.slice(-1)[0].average_cost);
+      let buyActionAmount = parseFloat(buyActions.slice(-1)[0].amount_purchased);
+
+      let sellActionBoughtAt = parseFloat(sellActions.slice(-1)[0].average_cost);
+      let sellActionAmount = parseFloat(sellActions.slice(-1)[0].amount_sold);
+      
+      // In this case, the first buyAction amount is greater than the sell that we are processing. Because of this, we can close out the entire sell.
+      if(buyActionAmount > sellActionAmount) {
+        soldProfit = soldProfit + (sellActionAmount * (sellActionBoughtAt - buyActionBoughtAt));
+        buyActions[buyActions.length - 1].amount_purchased = (buyActionAmount - sellActionAmount).toString();
+        sellActions.pop();
+
+      // In this case, the first buyAction amount is less than the sell amount. Because of this, we close out the buy and move on to the next.
+      } else if (buyActionAmount < sellActionAmount) {
+        soldProfit = soldProfit + (buyActionAmount * (sellActionBoughtAt - buyActionBoughtAt));
+        sellActions[sellActions.length - 1].amount_purchased = (sellActionAmount - buyActionAmount).toString();
+        buyActions.pop();
+
+      // In this case, the buy amount and sell amount are equal, so we close out both.
+      } else {
+        soldProfit = soldProfit + (sellActionAmount * (sellActionBoughtAt - buyActionBoughtAt));
+        buyActions.pop();
+        sellActions.pop();
+      }
+    }
+    
+    // This calculates the current profit with the actively purchased stocks.
+    let currentProfit = 0;
+    let currentPrice;
+    let totalStockAmount = 0;
+
+    if(buyActions.length != 0) {
+      // Get the current price of the stock
+      currentPrice = await getCurrentPrice(buyActions[0].ticker);
+    }
+    
+    while(buyActions.length != 0) {
+      let entry = buyActions.pop();
+      totalStockAmount = totalStockAmount + parseFloat(entry.amount_purchased);
+      currentProfit = currentProfit + (parseFloat(entry.amount_purchased) * (currentPrice.c - entry.average_cost));
+    }
+
+    let totalProfit = currentProfit + soldProfit;
+    accountProfit = accountProfit + totalProfit;
+
+    if(currentPrice) {
+      accountStockTotal = accountStockTotal + (totalStockAmount * currentPrice.c);
+    }
+
+    results.stocks[item] = {
+      currentProfit,
+      soldProfit,
+      totalStockAmount,
+      totalProfit,
+      ...currentPrice
+    }
+  }
+  
+  results.accountProfit = accountProfit;
+  results.accountStockTotal = accountStockTotal;
+
+  return results;
+}
+
+/**
+ * Gets the 'net' total of the ticker. I.E. how many outstanding shares left.
+ */
+getTickerTotal = async (username, ticker) => {
+  let purchaseTotal = await getTickerPurchaseTotal(username, ticker);
+  let saleTotal = await getTickerSaleTotal(username, ticker);
+
+  if(purchaseTotal == null) {
+    purchaseTotal = 0;
+  }
+
+  if(saleTotal == null) {
+    saleTotal = 0;
+  }
+
+  // Our total value is deposit minus withdrawal
+  const total = Number(purchaseTotal) - Number(saleTotal);
+  return total;
+}
+
+/**
+ * Get the total amount of withdrawals.
+ */
+const getTickerPurchaseTotal = async (username, ticker) => {
+  if(username) {
+    const createQuery = `SELECT sum(amount_purchased) FROM PURCHASE where account_username=$1 AND ticker=$2;`
+    const val = await pool.query(createQuery, [username, ticker]);
+    return val.rows[0].sum;
+  } else {
+    return new Error("Must specify username");
+  }
+};
+
+/**
+ * Get the total amount of deposits.
+ */
+const getTickerSaleTotal = async (username, ticker) => {
+  if(username) {
+    const createQuery = `SELECT sum(amount_sold) FROM SALE where account_username=$1 AND ticker=$2;`
+    const val = await pool.query(createQuery, [username, ticker]);
+    return val.rows[0].sum;
+  } else {
+    return new Error("Must specify username");
+  }
+};
+
+
+/**
+ * Get the total account details by adding withdrawals and deposits and returning stock information
+ */
+const getAccountDetails = async (username) => {
   let withdrawalTotal = await getWithdrawalTotal(username);
   let depositTotal = await getDepositTotal(username);
+  let stockTotal = await calculateStockProfitOrLoss(username);
 
   if(withdrawalTotal == null) {
     withdrawalTotal = 0;
@@ -284,9 +554,15 @@ const getAccountTotal = async (username) => {
     depositTotal = 0;
   }
 
-  // Our total value is deposit minus withdrawal
-  const total = Number(depositTotal) - Number(withdrawalTotal);
-  return total;
+  // Our total value is deposit minus withdrawal minus existing securities plus any profits made on stocks.
+  const total = Number(depositTotal) - Number(withdrawalTotal) - Number(stockTotal.accountStockTotal) + Number(stockTotal.accountProfit);
+  const accountDetails = {
+    total,
+    withdrawalTotal,
+    depositTotal,
+    ...stockTotal,
+  }
+  return accountDetails;
 }
 
 /**
@@ -315,17 +591,14 @@ const getDepositTotal = async (username) => {
   }
 };
 
-const printWithdrawalTable = async () => {
-  const query = 'SELECT * FROM WITHDRAWAL;';
-  const val = await pool.query(query);
-  console.log(val);
-};
-
 module.exports =  {
     addAccountEntry,
     addDepositEntry,
+    addPurchaseEntry,
+    addSaleEntry,
     addWithdrawalEntry,
     checkAccount,
     createAllTables,
     dropAllTables,
+    getAccountDetailsSummary,
 };
