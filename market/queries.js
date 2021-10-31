@@ -34,6 +34,7 @@ const getTickerResults = async (request, response) => {
  * Get the information needed for ticker
  */
 const getTickerDailyInfo = async (request, response) => {
+
     const ticker = request.query.ticker;
 
     const currentPrice = await getCurrentPrice(ticker.toUpperCase());

@@ -14,6 +14,7 @@ const { addAccountEntry,
         addSaleEntry,
         addWithdrawalEntry,
         checkAccount,
+        deleteAccountEntry,
         createAllTables,
         dropAllTables,
         getAccountDetailsSummary} = require('./db/queries');
@@ -21,9 +22,8 @@ const { addAccountEntry,
 const { getTickerDailyInfo, getTickerResults } = require('./market/queries');
 
 app.listen(port, () => {
-    console.log("server is listening...");
     // Creates all the tables if they do not exist already in the database. The operations must not be concurrent due to the foreign key nature of the tables.
-    // createAllTables()
+    // createAllTables();
 });
 
 app.get('/', (request, response) => {
@@ -40,6 +40,8 @@ app.get('/account/details', getAccountDetailsSummary)
 
 app.post('/account', addAccountEntry);
 
+app.delete('/account', deleteAccountEntry);
+
 app.post('/deposit', addDepositEntry);
 
 app.post('/withdrawal', addWithdrawalEntry);
@@ -53,3 +55,5 @@ app.post('/sale', addSaleEntry);
 app.get('/query', getTickerResults);
 
 app.get('/ticker/info', getTickerDailyInfo);
+
+module.exports = app;

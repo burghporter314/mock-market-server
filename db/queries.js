@@ -6,6 +6,10 @@ pool.on('connect', () => {
   console.log('connected to the db');
 });
 
+pool.on('error', (err) => {
+  console.log(err);
+});
+
 /**
  * Create Account Table
  */
@@ -15,7 +19,6 @@ const createAccountTable = async () => {
       PRIMARY KEY(username)
   );`;
   const val = await pool.query(createQuery);
-  console.log(val);
 };
 
 /**
@@ -29,10 +32,9 @@ const createSaleTable = async () => {
         amount_sold DECIMAL NOT NULL,
         average_cost FLOAT NOT NULL,
         ticker VARCHAR(20) NOT NULL,
-        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username)
+        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username) ON DELETE CASCADE
     );`;
     const val = await pool.query(createQuery);
-    console.log(val);
   };
 
 /**
@@ -46,10 +48,9 @@ const createPurchaseTable = async () => {
         amount_purchased DECIMAL NOT NULL,
         average_cost FLOAT NOT NULL,
         ticker VARCHAR(20) NOT NULL,
-        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username)
+        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username) ON DELETE CASCADE
     );`;
     const val = await pool.query(createQuery);
-    console.log(val);
   };
 
 /**
@@ -61,10 +62,9 @@ const createWithdrawalTable = async () => {
         account_username VARCHAR(50) NOT NULL,
         date TIMESTAMP NOT NULL,
         amount DECIMAL NOT NULL,
-        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username)
+        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username) ON DELETE CASCADE
     );`;
     const val = await pool.query(createQuery);
-    console.log(val);
   };
 
 /**
@@ -76,10 +76,9 @@ const createDepositTable = async () => {
         account_username VARCHAR(50) NOT NULL,
         date TIMESTAMP NOT NULL,
         amount DECIMAL NOT NULL,
-        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username)
+        FOREIGN KEY(account_username) REFERENCES ACCOUNT(username) ON DELETE CASCADE
     );`;
     const val = await pool.query(createQuery);
-    console.log(val);
   };
 
 
@@ -89,7 +88,6 @@ const createDepositTable = async () => {
 const dropAccountTable = async () => {
     const dropQuery = 'DROP TABLE IF EXISTS ACCOUNT';
     const val = await pool.query(dropQuery);
-    console.log(val);
   };
 
 /**
@@ -98,7 +96,6 @@ const dropAccountTable = async () => {
 const dropSaleTable = async () => {
     const dropQuery = 'DROP TABLE IF EXISTS SALE';
     const val = await pool.query(dropQuery);
-    console.log(val);
   };
 
 /**
@@ -107,7 +104,6 @@ const dropSaleTable = async () => {
 const dropPurchaseTable = async () => {
     const dropQuery = 'DROP TABLE IF EXISTS PURCHASE';
     const val = await pool.query(dropQuery);
-    console.log(val);
   };
 
 
@@ -118,7 +114,6 @@ const dropPurchaseTable = async () => {
 const dropWithdrawalTable = async () => {
     const dropQuery = 'DROP TABLE IF EXISTS WITHDRAWAL';
     const val = await pool.query(dropQuery);
-    console.log(val);
   };
 
 /**
@@ -127,7 +122,6 @@ const dropWithdrawalTable = async () => {
 const dropDepositTable = async () => {
     const dropQuery = 'DROP TABLE IF EXISTS DEPOSIT';
     const val = await pool.query(dropQuery);
-    console.log(val);
   };
 
 /**
@@ -168,21 +162,46 @@ const dropAllTables = async (request, response) => {
  */
 const addAccountEntry = async (request, response) => {
   const username = request.query.username;
-  if(username) {
-    const createQuery = `INSERT INTO ACCOUNT (username) VALUES ($1);`;  
-    const val = await pool.query(createQuery, [username], (err) => {
-      if(err) {
-        response.status(400).send(err);
-      } else {
-        response.status(200).send({
-          username: username,
-        });
-      }
-    });
-    console.log(val);
-  } else {
+
+  if(!username) {
     response.status(400).send("Username is not defined in request body.");
+    return;
   }
+
+  const createQuery = `INSERT INTO ACCOUNT (username) VALUES ($1) ON CONFLICT DO NOTHING;`;  
+  const val = await pool.query(createQuery, [username], (err) => {
+    if(err) {
+      response.status(400).send(err);
+    } else {
+      response.status(200).send({
+        username: username,
+      });
+    }
+  });
+};
+
+/**
+ * Delete an account
+ */
+const deleteAccountEntry = async (request, response) => {
+  const username = request.query.username;
+
+  if(!username) {
+    response.status(400).send("Username is not defined in request body.");
+    return;
+  }
+
+  const createQuery = `DELETE FROM ACCOUNT WHERE username = $1`;  
+  const val = await pool.query(createQuery, [username], (err) => {
+    if(err) {
+      response.status(400).send(err);
+    } else {
+      response.status(200).send({
+        username: username,
+      });
+    }
+  });
+
 };
 
 /**
@@ -190,19 +209,20 @@ const addAccountEntry = async (request, response) => {
  */
 const checkAccount = async (request, response) => {
   const username = request.query.username;
-  if(username) {
-    const createQuery = `SELECT * FROM ACCOUNT WHERE username=$1;`
-    const val = await pool.query(createQuery, [username], (err, res) => {
-      if(err) {
-        response.status(400).send(err);
-      } else {
-        response.status(200).json(res.rows);
-      }
-    });
-    console.log(val);
-  } else {
+
+  if(!username) {
     response.status(400).send("Username is not defined in request body.");
+    return;
   }
+
+  const createQuery = `SELECT * FROM ACCOUNT WHERE username=$1;`
+  const val = await pool.query(createQuery, [username], (err, res) => {
+    if(err) {
+      response.status(400).send(err);
+    } else {
+      response.status(200).json(res.rows);
+    }
+  });
 }
 
 /**
@@ -211,12 +231,29 @@ const checkAccount = async (request, response) => {
 const addWithdrawalEntry = async (request, response) => {
   const username = request.query.username;
   const amount = request.query.amount;
-  const total = await getAccountTotal(username);
 
-  if(amount > total) {
+  if(!username) {
+    response.status(400).send("Username is not defined in request body.");
+    return;
+  } else if(!amount) {
+    response.status(400).send("Amount is not defined in request body.");
+    return;
+  }
+
+  const accountDetails = await getAccountDetails(username);
+
+  const checkAccount = `SELECT * FROM ACCOUNT WHERE username=$1;`
+  const accountExists = await pool.query(checkAccount, [username]);
+
+  if((accountExists.rows[0] == undefined)) {
+    response.status(400).send("Username does not exist in the system");
+    return;
+  }
+
+  if(amount > accountDetails.total) {
     response.status(400).send("Unable to withdraw more than what is in the account.");
   } else {
-    if(username && amount > 0) {
+    if(amount > 0) {
       const createQuery = `INSERT INTO WITHDRAWAL (account_username, date, amount) VALUES ($1, NOW(), $2);`;  
       const val = await pool.query(createQuery, [username, amount], async (err) => {
         if(err) {
@@ -225,17 +262,12 @@ const addWithdrawalEntry = async (request, response) => {
           response.status(200).send({
             username: username,
             amount: amount,
-            account_value: Number(total) - Number(amount),
+            account_value: Number(accountDetails.total) - Number(amount),
           });
         }
       });
-      console.log(val);
     } else {
-      if(!username) {
-        response.status(400).send("Username is not defined in request body.");
-      } else {
-        response.status(400).send("Amount must be postitive");
-      }
+      response.status(400).send("Amount must be positive");
     }
   }
 };
@@ -247,26 +279,39 @@ const addDepositEntry = async (request, response) => {
   const username = request.query.username;
   const amount = request.query.amount;
 
-  if(username && amount > 0) {
+  if(!username) {
+    response.status(400).send("Username is not defined in request body.");
+    return;
+  } else if(!amount) {
+    response.status(400).send("Amount is not defined in request body.");
+    return;
+  }
+
+  if(amount > 0) {
+
+    const checkAccount = `SELECT * FROM ACCOUNT WHERE username=$1;`
+    const accountExists = await pool.query(checkAccount, [username]);
+
+    if((accountExists.rows[0] == undefined)) {
+      response.status(400).send("Username does not exist in the system");
+      return;
+    }
+
     const createQuery = `INSERT INTO DEPOSIT (account_username, date, amount) VALUES ($1, NOW(), $2);`;  
     const val = await pool.query(createQuery, [username, amount], async (err) => {
       if(err) {
         response.status(400).send(err);
       } else {
-        const newTotal = await getAccountTotal(username);
+        const newTotal = await getAccountDetails(username);
         response.status(200).send({
           username: username,
           amount: amount,
-          account_value: newTotal,
+          account_value: newTotal.total,
         });
       }
     });
   } else {
-    if(!username) {
-      response.status(400).send("Username is not defined in request body.");
-    } else {
-      response.status(400).send("Amount must be postitive");
-    }
+    response.status(400).send("Amount must be positive");
   }
 };
 
@@ -277,11 +322,31 @@ const addPurchaseEntry = async (request, response) => {
   const username = request.query.username;
   const amount = request.query.amount;
   const ticker = request.query.ticker;
+
+  if(!username) {
+    response.status(400).send("Username is not defined in request body.");
+    return;
+  } else if(!amount) {
+    response.status(400).send("Amount is not defined in request body.");
+    return;
+  } else if(!ticker) {
+    response.status(400).send("Ticker is not defined in request body.");
+    return;
+  }
+
   const currentPrice = await getCurrentPrice(ticker);
   const accountDetails = await getAccountDetails(username);
 
+  const checkAccount = `SELECT * FROM ACCOUNT WHERE username=$1;`
+  const accountExists = await pool.query(checkAccount, [username]);
+
+  if((accountExists.rows[0] == undefined)) {
+    response.status(400).send("Username does not exist in the system");
+    return;
+  }
+
   if(currentPrice.c) {
-    if((Number(amount) * Number(currentPrice.c)) > Number(accountTotal.total)) {
+    if((Number(amount) * Number(currentPrice.c)) > Number(accountDetails.total)) {
       response.status(400).send("Cannot buy more than what's available in account");
       return;
     }
@@ -290,7 +355,8 @@ const addPurchaseEntry = async (request, response) => {
     return;
   }
 
-  if(username && amount > 0) {
+  if(amount > 0) {
+
     const createQuery = `INSERT INTO PURCHASE (account_username, date, amount_purchased, average_cost, ticker) VALUES ($1, NOW(), $2, $3, $4);`;  
     const val = await pool.query(createQuery, [username, amount, currentPrice.c, ticker], async (err) => {
       if(err) {
@@ -306,11 +372,7 @@ const addPurchaseEntry = async (request, response) => {
       }
     });
   } else {
-    if(!username) {
-      response.status(400).send("Username is not defined in request body.");
-    } else {
-      response.status(400).send("Amount must be postitive");
-    }
+    response.status(400).send("Amount must be positive");
   }
 };
 
@@ -321,11 +383,29 @@ const addSaleEntry = async (request, response) => {
   const username = request.query.username;
   const amount = request.query.amount;
   const ticker = request.query.ticker;
+
+  if(!username) {
+    response.status(400).send("Username is not defined in request body.");
+    return;
+  } else if(!amount) {
+    response.status(400).send("Amount is not defined in request body.");
+    return;
+  } else if(!ticker) {
+    response.status(400).send("Ticker is not defined in request body.");
+    return;
+  }
+
   const currentPrice = await getCurrentPrice(ticker);
   const accountDetails = await getAccountDetails(username);
   const totalCurrentStock = await getTickerTotal(username, ticker);
 
-  console.log(totalCurrentStock);
+  const checkAccount = `SELECT * FROM ACCOUNT WHERE username=$1;`
+  const accountExists = await pool.query(checkAccount, [username]);
+
+  if((accountExists.rows[0] == undefined)) {
+    response.status(400).send("Username does not exist in the system");
+    return;
+  }
 
   if(currentPrice.c) {
     if(Number(amount) > totalCurrentStock) {
@@ -337,7 +417,8 @@ const addSaleEntry = async (request, response) => {
     return;
   }
 
-  if(username && amount > 0) {
+  if(amount > 0) {
+
     const createQuery = `INSERT INTO SALE (account_username, date, amount_sold, average_cost, ticker) VALUES ($1, NOW(), $2, $3, $4);`;  
     const val = await pool.query(createQuery, [username, amount, currentPrice.c, ticker], async (err) => {
       if(err) {
@@ -353,11 +434,7 @@ const addSaleEntry = async (request, response) => {
       }
     });
   } else {
-    if(!username) {
-      response.status(400).send("Username is not defined in request body.");
-    } else {
-      response.status(400).send("Amount must be postitive");
-    }
+    response.status(400).send("Amount must be positive");
   }
 };
 
@@ -366,13 +443,23 @@ const addSaleEntry = async (request, response) => {
  */
 const getAccountDetailsSummary = async (request, response) => {
   const username = request.query.username;
-  if(username) {
-    const accountDetails = await getAccountDetails(username);
-    console.log(accountDetails);
-    response.status(200).send(accountDetails);
-  } else {
+
+  if(!username) {
     response.status(400).send("Username is not defined in request body.");
+    return;
   }
+
+  const checkAccount = `SELECT * FROM ACCOUNT WHERE username=$1;`
+  const accountExists = await pool.query(checkAccount, [username]);
+
+  if((accountExists.rows[0] == undefined)) {
+    response.status(400).send("Username does not exist in the system");
+    return;
+  }
+
+  const accountDetails = await getAccountDetails(username);
+  response.status(200).send(accountDetails);
+
 }
 
 /**
@@ -599,6 +686,7 @@ module.exports =  {
     addWithdrawalEntry,
     checkAccount,
     createAllTables,
+    deleteAccountEntry,
     dropAllTables,
     getAccountDetailsSummary,
 };
