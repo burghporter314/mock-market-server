@@ -545,10 +545,8 @@ const calculateStockProfitOrLoss = async(username) => {
     let currentPrice;
     let totalStockAmount = 0;
 
-    if(buyActions.length != 0) {
-      // Get the current price of the stock
-      currentPrice = await getCurrentPrice(buyActions[0].ticker);
-    }
+    // Get the current price of the stock
+    currentPrice = await getCurrentPrice(item);
     
     while(buyActions.length != 0) {
       let entry = buyActions.pop();
