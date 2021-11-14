@@ -22,7 +22,7 @@ const { addAccountEntry,
 
 const { getTickerDailyInfo, getTickerResults } = require('./market/queries');
 
-app.use(cors());
+app.use(cors());;
 
 app.listen(port, () => {
     // Creates all the tables if they do not exist already in the database. The operations must not be concurrent due to the foreign key nature of the tables.

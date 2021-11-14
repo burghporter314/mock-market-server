@@ -453,7 +453,7 @@ const getAccountDetailsSummary = async (request, response) => {
   const accountExists = await pool.query(checkAccount, [username]);
 
   if((accountExists.rows[0] == undefined)) {
-    response.status(400).send("Username does not exist in the system");
+    await addAccountEntry(request, response);
     return;
   }
 
@@ -529,7 +529,7 @@ const calculateStockProfitOrLoss = async(username) => {
       // In this case, the first buyAction amount is less than the sell amount. Because of this, we close out the buy and move on to the next.
       } else if (buyActionAmount < sellActionAmount) {
         soldProfit = soldProfit + (buyActionAmount * (sellActionBoughtAt - buyActionBoughtAt));
-        sellActions[sellActions.length - 1].amount_purchased = (sellActionAmount - buyActionAmount).toString();
+        sellActions[sellActions.length - 1].amount_sold = (sellActionAmount - buyActionAmount).toString();
         buyActions.pop();
 
       // In this case, the buy amount and sell amount are equal, so we close out both.
