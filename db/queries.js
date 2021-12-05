@@ -458,6 +458,10 @@ const getAccountDetailsSummary = async (request, response) => {
   }
 
   const accountDetails = await getAccountDetails(username);
+  if(isNaN(accountDetails.accountProfit)) {
+    response.status(400).send("API Limit Reached.");
+    return;
+  }
   response.status(200).send(accountDetails);
 
 }
@@ -630,7 +634,7 @@ const getAccountDetails = async (username) => {
   let withdrawalTotal = await getWithdrawalTotal(username);
   let depositTotal = await getDepositTotal(username);
   let stockTotal = await calculateStockProfitOrLoss(username);
-
+  
   if(withdrawalTotal == null) {
     withdrawalTotal = 0;
   }
